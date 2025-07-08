@@ -25,4 +25,3 @@
 #echo 'src-git 5gsupport https://github.com/Siriling/5G-Modem-Support.git;main' >> feeds.conf.default
 echo 'src-git modem https://github.com/FUjr/modem_feeds.git;main' >> feeds.conf.default
 echo "src-git turboacc https://github.com/chenmozhijin/turboacc.git;main" >> feeds.conf.default
-echo "src-git lienol https://github.com/Lienol/openwrt-package.git;main" >> feeds.conf.default
