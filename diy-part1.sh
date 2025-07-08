@@ -26,4 +26,3 @@
 echo 'src-git modem https://github.com/FUjr/modem_feeds.git;main' >> feeds.conf.default
 echo "src-git sirpdboy https://github.com/sirpdboy/openwrt-package" >> feeds.conf.default
 echo "src-git turboacc https://github.com/chenmozhijin/turboacc" >> feeds.conf.default
-echo "src-git lienol https://github.com/Lienol/openwrt-package" >> feeds.conf.default
