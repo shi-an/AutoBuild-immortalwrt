@@ -29,17 +29,6 @@ jobs:
     runs-on: ubuntu-22.04
 
     steps:
-      - name: Cleanup disk space
-        run: |
-          echo "开始清理磁盘空间..."
-          sudo rm -rf /usr/share/dotnet # 清理 .NET 缓存，通常可释放大量空间
-          sudo rm -rf /opt/ghc
-          sudo rm -rf /usr/local/graalvm
-          sudo rm -rf "$AGENT_TOOLSDIRECTORY" # 清理工具缓存目录
-          sudo apt-get clean # 清理 APT 缓存文件 :cite[5]
-          echo "磁盘空间清理完成"
-
-    steps:
     - name: 准备完成
       uses: actions/checkout@main
 
