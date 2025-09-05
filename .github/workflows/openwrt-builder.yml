@@ -1,13 +1,226 @@
-- name: 删除旧发布
-  if: env.UPLOAD_RELEASE == 'true'
-  run: |
-    # 安装 GitHub CLI
-    curl -fsSL https://cli.github.com/packages/githubcli-archive-keyring.gpg | sudo dd of=/usr/share/keyrings/githubcli-archive-keyring.gpg
-    echo "deb [arch=$(dpkg --print-architecture) signed-by=/usr/share/keyrings/githubcli-archive-keyring.gpg] https://cli.github.com/packages stable main" | sudo tee /etc/apt/sources.list.d/github-cli.list > /dev/null
-    sudo apt update
-    sudo apt install gh
-    
-    # 删除除最新4个发布外的所有发布
-    gh release list --repo $GITHUB_REPOSITORY --limit 100 | tail -n +5 | awk '{print $1}' | xargs -I {} gh release delete --repo $GITHUB_REPOSITORY {} --yes
-  env:
-    GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+name: openwrt-builder
+
+on:
+  repository_dispatch:
+  workflow_dispatch:
+    inputs:
+      ssh:
+        description: 'SSH connection to Actions'
+        required: false
+        default: 'false'
+  schedule:
+   - cron: 0 22 */7 * *
+
+env:
+  REPO_URL: https://github.com/immortalwrt/immortalwrt
+  REPO_BRANCH: openwrt-24.10
+  FEEDS_CONF: feeds.conf.default
+  CONFIG_FILE: .config
+  DIY_P1_SH: diy-part1.sh
+  DIY_P2_SH: diy-part2.sh
+  UPLOAD_BIN_DIR: true
+  UPLOAD_FIRMWARE: true
+  UPLOAD_RELEASE: true
+  TZ: Asia/Shanghai
+  GITHUB_TOKEN: ${{ secrets.TOKEN }}
+
+jobs:
+  build:
+    runs-on: ubuntu-22.04
+
+    steps:
+    - name: 检查工作空间磁盘空间
+      run: df -h
+
+    - name: 清理系统空间
+      run: |
+        sudo rm -rf /usr/share/dotnet
+        sudo rm -rf /usr/local/lib/android
+        sudo rm -rf /opt/ghc
+        sudo rm -rf /opt/hostedtoolcache/CodeQL
+        sudo docker image prune -a -f
+        sudo apt-get clean
+
+    - name: 检出代码
+      uses: actions/checkout@v4
+
+    - name: 检查服务器配置
+      run: |
+        echo "若分配的服务器性能不足，务必及时取消，重新运行！"
+        echo -e "CPU核心数: $(nproc)"
+        echo -e "内存总量: $(free -h | awk '/Mem:/ {print $2}')"
+        echo -e "磁盘使用情况:"
+        df -h
+
+    - name: 安装 Go
+      uses: actions/setup-go@v4
+      with:
+        go-version: 'stable'
+        cache: true
+
+    - name: 初始化编译环境
+      env:
+        DEBIAN_FRONTEND: noninteractive
+      run: |
+        sudo -E apt-get -qq update
+        sudo -E apt-get -qq install -y --no-install-recommends \
+          ack antlr3 asciidoc autoconf automake autopoint binutils bison build-essential \
+          bzip2 ccache cmake cpio curl device-tree-compiler fastjar flex gawk gettext \
+          gcc-multilib g++-multilib git gperf haveged help2man intltool libc6-dev-i386 \
+          libelf-dev libfuse-dev libglib2.0-dev libgmp3-dev libltdl-dev libmpc-dev \
+          libmpfr-dev libncurses5-dev libncursesw5-dev libpython3-dev libreadline-dev \
+          libssl-dev libtool lrzsz mkisofs msmtp ninja-build p7zip p7zip-full patch \
+          pkgconf python2.7 python3 python3-pyelftools python3-setuptools qemu-utils \
+          rsync scons squashfs-tools subversion swig texinfo uglifyjs upx-ucl unzip \
+          vim wget xmlto xxd zlib1g-dev rename
+        sudo -E apt-get -qq autoremove --purge
+        sudo -E apt-get -qq clean
+        sudo timedatectl set-timezone "$TZ"
+
+    - name: 克隆源码
+      run: |
+        git clone --depth 1 $REPO_URL -b $REPO_BRANCH openwrt
+
+    - name: 缓存构建
+      uses: actions/cache@v3
+      with:
+        path: |
+          openwrt/dl
+          openwrt/build_dir
+          ~/.ccache
+        key: ${{ runner.os }}-openwrt-${{ env.REPO_BRANCH }}-${{ hashFiles('feeds.conf.default', '.config') }}
+        restore-keys: |
+          ${{ runner.os }}-openwrt-${{ env.REPO_BRANCH }}-
+          ${{ runner.os }}-openwrt-
+
+    - name: 加载自定义 feeds
+      run: |
+        [ -e $FEEDS_CONF ] && cp $FEEDS_CONF openwrt/feeds.conf.default
+        [ -e $DIY_P1_SH ] && chmod +x $DIY_P1_SH && cd openwrt && ../$DIY_P1_SH
+
+    - name: 更新 feeds
+      run: |
+        cd openwrt
+        ./scripts/feeds update -a
+
+    - name: 安装 feeds
+      run: |
+        cd openwrt
+        ./scripts/feeds install -a
+
+    - name: 强制用tom modem驱动
+      run: |
+        cd openwrt
+        ./scripts/feeds install -a -f -p modem
+
+    - name: 加载自定义配置
+      run: |
+        [ -e files ] && cp -r files openwrt/
+        [ -e $CONFIG_FILE ] && cp $CONFIG_FILE openwrt/.config
+        [ -e $DIY_P2_SH ] && chmod +x $DIY_P2_SH && cd openwrt && ../$DIY_P2_SH
+
+    - name: SSH 连接到 Actions
+      if: (github.event.inputs.ssh == 'true' && github.event.inputs.ssh != 'false') || contains(github.event.action, 'ssh')
+      uses: P3TERX/ssh2actions@v1.0.0
+      env:
+        GITHUB_TOKEN: ${{ secrets.TOKEN }}
+
+    - name: 下载软件包
+      run: |
+        cd openwrt
+        make defconfig
+        make download -j$(nproc)
+        # 删除损坏的小文件
+        find dl -size -1024c -delete
+
+    - name: 检查磁盘空间
+      run: df -h
+
+    - name: 编译固件
+      run: |
+        cd openwrt
+        echo "使用 $(nproc) 线程编译"
+        make -j$(($(nproc) + 1)) || make -j1 || make -j1 V=s
+        echo "FILE_DATE=_$(date +"%Y%m%d%H%M")" >> $GITHUB_ENV
+        grep '^CONFIG_TARGET.*DEVICE.*=y' .config | sed -r 's/.*DEVICE_(.*)=y/\1/' > DEVICE_NAME
+        [ -s DEVICE_NAME ] && echo "DEVICE_NAME=_$(cat DEVICE_NAME)" >> $GITHUB_ENV
+
+    - name: 清理编译缓存
+      run: |
+        cd openwrt
+        # 保留必要的文件，清理中间文件
+        rm -rf build_dir/* staging_dir/* tmp/*
+
+    - name: 上传 bin 文件夹
+      if: env.UPLOAD_BIN_DIR == 'true'
+      uses: actions/upload-artifact@v4
+      with:
+        name: OpenWrt_bin${{ env.DEVICE_NAME }}${{ env.FILE_DATE }}
+        path: openwrt/bin
+        retention-days: 7
+
+    - name: 整理固件文件
+      if: env.UPLOAD_FIRMWARE == 'true'
+      run: |
+        cd openwrt/bin/targets/*/*
+        rm -rf packages
+        echo "FIRMWARE=$PWD" >> $GITHUB_ENV
+
+    - name: 上传固件目录
+      if: env.UPLOAD_FIRMWARE == 'true'
+      uses: actions/upload-artifact@v4
+      with:
+        name: OpenWrt_firmware${{ env.DEVICE_NAME }}${{ env.FILE_DATE }}
+        path: ${{ env.FIRMWARE }}
+        retention-days: 7
+
+    - name: 生成发布信息
+      if: env.UPLOAD_RELEASE == 'true'
+      run: |
+        echo "release_tag=$(date +"%Y.%m.%d-%H.%M")" >> $GITHUB_OUTPUT
+        cat > release.txt << EOF
+        💻 架构: x86-64
+
+        📂 源码: ${{ env.REPO_URL }}
+
+        🌳 分支: ${{ env.REPO_BRANCH }}
+
+        ⏱️ 编译时间: $(date +"%Y年%m月%d日%H时%M分")
+
+        🌐 管理地址: 192.168.10.1
+
+        👤 用户名: root
+
+        🔒 密码: password
+        EOF
+
+    - name: 发布到 GitHub Releases
+      if: env.UPLOAD_RELEASE == 'true'
+      uses: softprops/action-gh-release@v1
+      with:
+        tag_name: ${{ steps.tag.outputs.release_tag }}
+        body_path: release.txt
+        files: ${{ env.FIRMWARE }}/*
+        draft: false
+        prerelease: false
+
+    - name: 清理工作空间
+      run: |
+        # 保留缓存但删除源代码
+        rm -rf openwrt/*
+
+    - name: 删除旧工作流运行记录
+      uses: Mattraks/delete-workflow-runs@main
+      with:
+        retain_days: 1
+        keep_minimum_runs: 1
+        token: ${{ secrets.GITHUB_TOKEN }}
+
+    - name: 删除旧发布
+      if: env.UPLOAD_RELEASE == 'true'
+      uses: dev-drprasad/delete-older-releases@v0.5.0
+      with:
+        keep_latest: 4
+        delete_tags: true
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
