@@ -210,7 +210,7 @@ jobs:
         rm -rf openwrt/*
 
     - name: 删除旧工作流运行记录
-      uses: Mattraks/delete-workflow-runs@master
+      uses: Mattraks/delete-workflow-runs@main
       with:
         retain_days: 1
         keep_minimum_runs: 1
