@@ -10,74 +10,86 @@
 # See /LICENSE for more information.
 #
 
-# 移除要替换的包
-rm -rf feeds/packages/net/v2ray-geodata
+# 导入配置函数
+source ../config_functions.sh
 
-# Git稀疏克隆，只克隆指定目录到本地
-function git_sparse_clone() {
-  branch="$1" repourl="$2" && shift 2
-  git clone --depth=1 -b $branch --single-branch --filter=blob:none --sparse $repourl
-  repodir=$(echo $repourl | awk -F '/' '{print $(NF)}')
-  cd $repodir && git sparse-checkout set $@
-  mv -f $@ ../package
-  cd .. && rm -rf $repodir
-}
+echo "=== 开始 DIY 第二部分配置 ==="
 
-# 添加额外插件
-#git clone https://github.com/sbwml/luci-app-mosdns -b v5 package/mosdns
-#git clone https://github.com/sbwml/v2ray-geodata package/v2ray-geodata
-#git_sparse_clone master https://github.com/kiddin9/openwrt-packages luci-app-aliddns
-#git_sparse_clone master https://github.com/kiddin9/openwrt-packages luci-app-pushbot
-#git_sparse_clone master https://github.com/kiddin9/openwrt-packages luci-app-jellyfin luci-lib-taskd luci-lib-xterm taskd
-#git_sparse_clone master https://github.com/kiddin9/openwrt-packages luci-app-linkease linkease ffmpeg-remux
+# 自动克隆自定义软件包
+echo "=== 自动克隆自定义软件包 ==="
+if [ -f "../custom_packages.txt" ]; then
+    # 创建 package 目录（如果不存在）
+    mkdir -p package
+    
+    while IFS= read -r line; do
+        # 跳过注释行和空行
+        if [[ $line =~ ^# ]] || [[ -z $line ]]; then
+            continue
+        fi
+        
+        # 解析行：软件包名称 仓库地址 分支 目标目录 是否启用
+        read -r pkg_name repo_url branch target_dir enable_flag <<< "$line"
+        
+        if [ -n "$repo_url" ] && [ -n "$target_dir" ]; then
+            # 如果分支未指定，使用 master
+            if [ -z "$branch" ]; then
+                branch="master"
+            fi
+            
+            echo "正在处理: $pkg_name -> $target_dir"
+            
+            # 克隆软件包
+            if git_clone_package "$repo_url" "$branch" "$target_dir"; then
+                echo "  ✅ 成功克隆 $pkg_name"
+                
+                # 如果启用标志为 y，则添加到配置
+                if [ "$enable_flag" = "y" ]; then
+                    echo "  ✅ 启用软件包: $pkg_name"
+                    echo "CONFIG_PACKAGE_$pkg_name=y" >> .config
+                fi
+            else
+                echo "  ❌ 克隆失败: $pkg_name"
+            fi
+        else
+            echo "  ⚠️ 跳过无效行: $line"
+        fi
+    done < "../custom_packages.txt"
+    
+    echo "自定义软件包处理完成"
+else
+    echo "未找到自定义软件包配置文件: custom_packages.txt"
+fi
 
-# 加入OpenClash核心
-chmod -R a+x ../preset-clash-core.sh  
-../preset-clash-core.sh               
+# 执行额外的自定义脚本（如果存在）
+if [ -f "../custom_script.sh" ]; then
+    echo "=== 执行额外自定义脚本 ==="
+    chmod +x "../custom_script.sh"
+    "../custom_script.sh"
+    echo "额外自定义脚本执行完成"
+fi
 
-echo "
-# mosdns
-#CONFIG_PACKAGE_luci-app-mosdns=y
+# 加入OpenClash核心（如果启用了OpenClash）
+if grep -q "CONFIG_PACKAGE_luci-app-openclash=y" .config 2>/dev/null; then
+    echo "=== 配置 OpenClash 核心 ==="
+    if [ -f "../preset-clash-core.sh" ]; then
+        chmod -R a+x "../preset-clash-core.sh"  
+        "../preset-clash-core.sh"
+        echo "OpenClash 核心配置完成"
+    else
+        echo "未找到 preset-clash-core.sh 脚本"
+    fi
+fi
 
-# pushbot
-#CONFIG_PACKAGE_luci-app-pushbot=y
+# 复制自定义文件
+echo "=== 复制自定义文件 ==="
+if [ -f "../banner" ]; then
+    echo "复制自定义 banner"
+    cp -f ../banner package/base-files/files/etc/banner
+fi
 
-# 阿里DDNS
-#CONFIG_PACKAGE_luci-app-aliddns=y
+if [ -f "../99-default-settings" ]; then
+    echo "复制默认设置"
+    cp -f ../99-default-settings package/emortal/default-settings/files/99-default-settings
+fi
 
-# Jellyfin
-#CONFIG_PACKAGE_luci-app-jellyfin=y
-
-# 易有云
-#CONFIG_PACKAGE_luci-app-linkease=y
-
-# 禁用 MultiWAN 管理器
-# CONFIG_PACKAGE_luci-app-mwan3 is not set
-# CONFIG_PACKAGE_luci-app-mwan3helper is not set
-# CONFIG_PACKAGE_luci-i18n-mwan3-zh-cn is not set
-
-" >> .config
-
-# 修改默认IP
-sed -i 's/192.168.1.1/192.168.10.1/g' package/base-files/files/bin/config_generate
-
-# 修改默认主题
-sed -i 's/luci-theme-bootstrap/luci-theme-argon/g' feeds/luci/collections/luci/Makefile
-
-# 修改主机名
-sed -i 's/ImmortalWrt/GWRT/g' package/base-files/files/bin/config_generate
-
-# 修改系统信息
-cp -f ../99-default-settings package/emortal/default-settings/files/99-default-settings  
-cp -f ../banner package/base-files/files/etc/banner                                       
-
-# 修改主题背景
-#cp -f ../argon/favicon.ico feeds/luci/themes/luci-theme-argon/htdocs/luci-static/argon/favicon.ico
-#cp -f ../argon/icon/android-icon-192x192.png feeds/luci/themes/luci-theme-argon/htdocs/luci-static/argon/icon/android-icon-192x192.png
-#cp -f ../argon/icon/apple-icon-144x144.png feeds/luci/themes/luci-theme-argon/htdocs/luci-static/argon/icon/apple-icon-144x144.png
-#cp -f ../argon/icon/apple-icon-60x60.png feeds/luci/themes/luci-theme-argon/htdocs/luci-static/argon/icon/apple-icon-60x60.png
-#cp -f ../argon/icon/apple-icon-72x72.png feeds/luci/themes/luci-theme-argon/htdocs/luci-static/argon/icon/apple-icon-72x72.png
-#cp -f ../argon/icon/favicon-16x16.png feeds/luci/themes/luci-theme-argon/htdocs/luci-static/argon/icon/favicon-16x16.png
-#cp -f ../argon/icon/favicon-32x32.png feeds/luci/themes/luci-theme-argon/htdocs/luci-static/argon/icon/favicon-32x32.png
-#cp -f ../argon/icon/favicon-96x96.png feeds/luci/themes/luci-theme-argon/htdocs/luci-static/argon/icon/favicon-96x96.png
-#cp -f ../argon/icon/ms-icon-144x144.png feeds/luci/themes/luci-theme-argon/htdocs/luci-static/argon/icon/ms-icon-144x144.png
+echo "=== DIY 第二部分配置完成 ==="
