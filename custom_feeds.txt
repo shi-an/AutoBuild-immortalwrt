@@ -1,0 +1,17 @@
+# 自定义 feeds 配置文件
+# 格式: feed名称 仓库地址 分支
+
+# 基础 feeds
+qmodem https://github.com/FUjr/QModem.git main
+
+# 可选 feeds (取消注释以启用)
+# turboacc https://github.com/chenmozhijin/turboacc main
+# lienol https://github.com/Lienol/openwrt-package master
+# helloworld https://github.com/fw876/helloworld master
+# passwall https://github.com/xiaorouji/openwrt-passwall main
+# kiddin9 https://github.com/kiddin9/openwrt-packages master
+# kenzok8 https://github.com/kenzok8/openwrt-packages master
+# istore https://github.com/linkease/istore main
+# nas https://github.com/linkease/nas-packages.git master
+# nas_luci https://github.com/linkease/nas-packages-luci.git main
+# 5gsupport https://github.com/Siriling/5G-Modem-Support.git main
