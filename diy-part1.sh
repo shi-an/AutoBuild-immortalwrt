@@ -10,37 +10,72 @@
 # See /LICENSE for more information.
 #
 
-# 函数：安全添加 feed 源（如果不存在）
-safe_add_feed() {
-    local feed_name="$1"
-    local feed_url="$2"
-    
-    # 检查是否已存在相同名称的源
-    if ! grep -q "src-git $feed_name " feeds.conf.default; then
-        echo "添加 feed 源: $feed_name"
-        echo "src-git $feed_name $feed_url" >> feeds.conf.default
-    else
-        echo "Feed 源 $feed_name 已存在，跳过添加"
-    fi
-}
+# 导入配置函数
+source ../config_functions.sh
 
-# 取消注释现有的 feed 源（如果需要）
-# sed -i 's/^#\(.*helloworld\)/\1/' feeds.conf.default
+echo "=== 开始 DIY 第一部分配置 ==="
 
-# 安全地添加 feed 源
-safe_add_feed modem "https://github.com/FUjr/modem_feeds.git;main"
-safe_add_feed turboacc "https://github.com/chenmozhijin/turboacc"
-safe_add_feed lienol "https://github.com/Lienol/openwrt-package"
+# 加载自定义 feeds 配置
+echo "=== 加载自定义 feeds 配置 ==="
+if [ -f "../custom_feeds.txt" ]; then
+    while IFS= read -r line; do
+        # 跳过注释行和空行
+        if [[ $line =~ ^# ]] || [[ -z $line ]]; then
+            continue
+        fi
+        
+        # 解析行：feed名称 仓库地址 分支
+        read -r feed_name repo_url branch <<< "$line"
+        
+        if [ -n "$feed_name" ] && [ -n "$repo_url" ]; then
+            # 如果分支未指定，使用 master
+            if [ -z "$branch" ]; then
+                branch="master"
+            fi
+            
+            safe_add_feed "$feed_name" "$repo_url" "$branch"
+        fi
+    done < "../custom_feeds.txt"
+    echo "自定义 feeds 配置加载完成"
+else
+    echo "未找到自定义 feeds 配置文件: custom_feeds.txt"
+fi
 
-# 其他可选的 feed 源（已注释掉）
-# safe_add_feed helloworld "https://github.com/fw876/helloworld"
-# safe_add_feed passwall "https://github.com/xiaorouji/openwrt-passwall"
-# safe_add_feed kiddin9 "https://github.com/kiddin9/openwrt-packages"
-# safe_add_feed kenzok8 "https://github.com/kenzok8/openwrt-packages"
-# safe_add_feed innmonkey "https://github.com/innmonkey/openwrt-packages"
-# safe_add_feed istore "https://github.com/linkease/istore;main"
-# safe_add_feed nas "https://github.com/linkease/nas-packages.git;master"
-# safe_add_feed nas_luci "https://github.com/linkease/nas-packages-luci.git;main"
-# safe_add_feed 5gsupport "https://github.com/Siriling/5G-Modem-Support.git;main"
+# 加载系统配置
+echo "=== 加载系统配置 ==="
+if [ -f "../system_config.txt" ]; then
+    while IFS= read -r line; do
+        # 跳过注释行和空行
+        if [[ $line =~ ^# ]] || [[ -z $line ]]; then
+            continue
+        fi
+        
+        # 解析配置行
+        read -r config_type config_value1 config_value2 <<< "$line"
+        
+        case $config_type in
+            "lan_ip")
+                echo "设置 LAN IP: $config_value1"
+                sed -i "s/192.168.1.1/$config_value1/g" package/base-files/files/bin/config_generate
+                ;;
+            "hostname")
+                echo "设置主机名: $config_value1"
+                sed -i "s/ImmortalWrt/$config_value1/g" package/base-files/files/bin/config_generate
+                ;;
+            "timezone")
+                echo "设置时区: $config_value1"
+                sed -i "s|UTC|$config_value1|g" package/base-files/files/bin/config_generate
+                ;;
+            "theme")
+                echo "设置默认主题: $config_value1"
+                sed -i "s/luci-theme-bootstrap/$config_value1/g" feeds/luci/collections/luci/Makefile
+                ;;
+            # 可以继续添加更多配置类型
+        esac
+    done < "../system_config.txt"
+    echo "系统配置加载完成"
+else
+    echo "未找到系统配置文件: system_config.txt"
+fi
 
-echo "Feed 源添加完成"
+echo "=== DIY 第一部分配置完成 ==="
