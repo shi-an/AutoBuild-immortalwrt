@@ -2,9 +2,5 @@
 # 格式: 配置类型 参数1 参数2 ...
 
 # 网络配置
-lan_ip 192.168.8.1
 hostname XR30
 timezone Asia/Shanghai
-
-# 主题配置
-# theme luci-theme-argon

@@ -54,10 +54,6 @@ if [ -f "../system_config.txt" ]; then
         read -r config_type config_value1 config_value2 <<< "$line"
         
         case $config_type in
-            "lan_ip")
-                echo "设置 LAN IP: $config_value1"
-                sed -i "s/192.168.1.1/$config_value1/g" package/base-files/files/bin/config_generate
-                ;;
             "hostname")
                 echo "设置主机名: $config_value1"
                 sed -i "s/ImmortalWrt/$config_value1/g" package/base-files/files/bin/config_generate

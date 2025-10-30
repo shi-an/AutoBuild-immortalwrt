@@ -1,27 +1,6 @@
 # 自定义软件包配置文件
 # 格式: 软件包名称 仓库地址 分支 目标目录 是否启用(y/n)
-
-# 代理工具
-# luci-app-openclash https://github.com/vernesong/OpenClash master luci-app-openclash y
-# luci-app-passwall https://github.com/xiaorouji/openwrt-passwall main luci-app-passwall n
-# luci-app-ssr-plus https://github.com/fw876/helloworld master luci-app-ssr-plus n
-
-# 主题和界面
-# luci-app-argon-config https://github.com/jerrykuku/luci-app-argon-config master luci-app-argon-config y
-# luci-theme-argon https://github.com/jerrykuku/luci-theme-argon master luci-theme-argon y
-
-# 网络工具
-# luci-app-adguardhome https://github.com/rufengsuixing/luci-app-adguardhome master luci-app-adguardhome n
-# luci-app-turboacc https://github.com/chenmozhijin/turboacc main luci-app-turboacc y
-
-# 系统工具
-# luci-app-diskman https://github.com/lisaac/luci-app-diskman master luci-app-diskman y
-# luci-app-advanced-reboot https://github.com/immortalwrt/luci/branches/openwrt-24.10/applications/luci-app-advanced-reboot master luci-app-advanced-reboot y
-
-# 可选软件包 (取消注释以启用)
-# luci-app-filebrowser https://github.com/immortalwrt/luci/branches/openwrt-24.10/applications/luci-app-filebrowser master luci-app-filebrowser n
-# luci-app-samba4 https://github.com/immortalwrt/luci/branches/openwrt-24.10/applications/luci-app-samba4 master luci-app-samba4 n
-# luci-app-wol https://github.com/immortalwrt/luci/branches/openwrt-24.10/applications/luci-app-wol master luci-app-wol n
 bandix https://github.com/timsaya/openwrt-bandix main bandix y
 luci-app-bandix https://github.com/timsaya/luci-app-bandix main luci-app-bandix y
-luci-app-netspeedtest https://github.com/sirpdboy/luci-app-netspeedtest js netspeedtest y
+luci-app-netspeedtest https://github.com/sirpdboy/luci-app-netspeedtest js luci-app-netspeedtest y
+luci-app-at-webserver https://github.com/inotdream/mt5700webui-openwrt-server main luci-app-at-webserver y
