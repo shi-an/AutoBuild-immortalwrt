@@ -1,4 +1,4 @@
-name: ImmortalWrt Build MT798x
+name: ImmortalWrt Build MT798x xr30
 
 on:
   workflow_dispatch:
