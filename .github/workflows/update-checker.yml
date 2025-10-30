@@ -10,50 +10,183 @@
 # See /LICENSE for more information.
 #
 
-name: Update-Checker
-
-env:
-  REPO_URL: https://github.com/immortalwrt/immortalwrt
-  REPO_BRANCH: openwrt-23.05
+name: ImmortalWrt Build MT798x
 
 on:
-   workflow_dispatch:
-  #schedule:
-    #- cron: 0 0 1/7 * *
+  workflow_dispatch:
+    inputs:
+      ssh:
+        description: 'SSH connection to Actions'
+        required: false
+        default: 'false'
+  schedule:
+    - cron: '0 22 */7 * *'
+
+env:
+  REPO_URL: https://github.com/padavanonly/immortalwrt-mt798x-6.6
+  REPO_BRANCH: openwrt-24.10-6.6
+  FEEDS_CONF: feeds.conf.default
+  CONFIG_FILE: .config
+  DIY_P1_SH: diy-part1.sh
+  DIY_P2_SH: diy-part2.sh
+  UPLOAD_BIN_DIR: true
+  UPLOAD_FIRMWARE: true
+  UPLOAD_RELEASE: true
+  TZ: Asia/Shanghai
 
 jobs:
-  check:
-    runs-on: ubuntu-latest
-
+  build:
+    runs-on: ubuntu-24.04
+    
     steps:
+    - name: Checkout repository
+      uses: actions/checkout@v4
 
-    - name: Get Commit Hash
-      id: getHash
+    - name: Display system information
       run: |
-        git clone --depth 1 $REPO_URL -b $REPO_BRANCH .
-        echo "commitHash=$(git rev-parse HEAD)" >> $GITHUB_OUTPUT
+        echo "=== System Information ==="
+        echo "CPU cores: $(nproc)"
+        echo "Memory:"
+        free -h
+        echo "Disk:"
+        df -h
 
-    - name: Compare Commit Hash
-      id: cacheHash
+    - name: Setup build environment
+      run: |
+        sudo timedatectl set-timezone "$TZ"
+        sudo mkdir -p /workdir
+        sudo chown "$USER:$(id -gn)" /workdir
+
+    - name: Install dependencies using ImmortalWrt script
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y curl
+        sudo bash -c 'bash <(curl -s https://build-scripts.immortalwrt.org/init_build_environment.sh)'
+
+    - name: Clone source code
+      run: |
+        git clone --depth 1 --filter=blob:none "$REPO_URL" -b "$REPO_BRANCH" openwrt
+
+    - name: Cache build artifacts
       uses: actions/cache@v4
       with:
-        path: .commitHash
-        key: commitHash_${{ steps.getHash.outputs.commitHash }}
+        path: |
+          openwrt/dl
+          openwrt/build_dir
+          openwrt/staging_dir
+          openwrt/tmp
+        key: ${{ runner.os }}-immortalwrt-${{ hashFiles('feeds.conf.default', '.config') }}
+        restore-keys: |
+          ${{ runner.os }}-immortalwrt-
 
-    - name: Save New Commit Hash
-      if: steps.cacheHash.outputs.cache-hit != 'true'
+    - name: Load custom feeds configuration
       run: |
-        echo ${{ steps.getHash.outputs.commitHash }} | tee .commitHash
+        if [ -f "$FEEDS_CONF" ]; then
+          cp "$FEEDS_CONF" openwrt/feeds.conf.default
+        fi
 
-    - name: Trigger build
-      if: steps.cacheHash.outputs.cache-hit != 'true'
-      uses: peter-evans/repository-dispatch@v2
-      with:
-        token: ${{ secrets.TOKEN }}
-        event-type: Source Code Update
+    - name: Run pre-feeds DIY script
+      run: |
+        if [ -f "$DIY_P1_SH" ]; then
+          chmod +x "$DIY_P1_SH"
+          cd openwrt
+          "../$DIY_P1_SH"
+        fi
 
-    - name: Delete workflow runs
-      uses: Mattraks/delete-workflow-runs@v2
+    - name: Update and install feeds
+      run: |
+        cd openwrt
+        ./scripts/feeds update -a
+        ./scripts/feeds install -a
+
+    - name: Install modem drivers
+      run: |
+        cd openwrt
+        ./scripts/feeds install -a -f -p modem
+
+    - name: Load custom configuration
+      run: |
+        if [ -f "$CONFIG_FILE" ]; then
+          cp "$CONFIG_FILE" openwrt/.config
+        fi
+        if [ -d "files" ]; then
+          cp -r files openwrt/
+        fi
+
+    - name: Run post-feeds DIY script
+      run: |
+        if [ -f "$DIY_P2_SH" ]; then
+          chmod +x "$DIY_P2_SH"
+          cd openwrt
+          "../$DIY_P2_SH"
+        fi
+
+    - name: Download packages
+      run: |
+        cd openwrt
+        make defconfig
+        make download -j$(nproc)
+
+    - name: Build firmware (multi-thread only)
+      run: |
+        cd openwrt
+        make -j$(nproc)
+
+    - name: Organize firmware files
+      id: organize
+      run: |
+        cd openwrt/bin/targets/*/*
+        # Remove packages to reduce artifact size
+        rm -rf packages
+        FIRMWARE_PATH="$PWD"
+        echo "firmware_path=$FIRMWARE_PATH" >> $GITHUB_OUTPUT
+        
+        # Count firmware files
+        FIRMWARE_COUNT=$(find . -type f \( -name "*.img" -o -name "*.bin" -o -name "*.gz" -o -name "*.zip" \) | wc -l)
+        echo "firmware_count=$FIRMWARE_COUNT" >> $GITHUB_OUTPUT
+
+    - name: Upload firmware artifacts
+      uses: actions/upload-artifact@v4
       with:
-        retain_days: 0
-        keep_minimum_runs: 2
+        name: immortalwrt-firmware-mt798x
+        path: ${{ steps.organize.outputs.firmware_path }}
+        retention-days: 7
+
+    - name: Create release
+      if: steps.organize.outputs.firmware_count > 0
+      id: create_release
+      uses: softprops/action-gh-release@v1
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      with:
+        tag_name: build-${{ github.run_id }}-${{ github.run_attempt }}
+        name: ImmortalWrt MT798x Build ${{ github.run_id }}
+        body: |
+          # ImmortalWrt MT798x 自动编译版本
+          
+          **编译信息:**
+          - 源码仓库: ${{ env.REPO_URL }}
+          - 分支: ${{ env.REPO_BRANCH }}
+          - 编译时间: ${{ fromJSON(format('"{0}"', github.event.head_commit.timestamp || github.run_started_at)) }}
+          - 运行ID: ${{ github.run_id }}
+          
+          **固件信息:**
+          - 目标设备: MT798x 系列
+          - 包含 ${{ steps.organize.outputs.firmware_count }} 个固件文件
+          
+          **刷机说明:**
+          请根据具体设备型号选择合适的固件文件刷写。
+        draft: false
+        prerelease: false
+        files: ${{ steps.organize.outputs.firmware_path }}/*
+
+    - name: Build summary
+      if: always()
+      run: |
+        echo "=== Build Summary ==="
+        echo "Repository: ${{ env.REPO_URL }}"
+        echo "Branch: ${{ env.REPO_BRANCH }}"
+        echo "Workflow: ${{ github.workflow }}"
+        echo "Run ID: ${{ github.run_id }}"
+        echo "Firmware files: ${{ steps.organize.outputs.firmware_count || 0 }}"
+        echo "Status: ${{ job.status }}"
